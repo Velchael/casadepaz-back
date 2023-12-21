@@ -6,7 +6,7 @@ const createUsers = async (request, response) => {
 
 const getUserByUsernameAndPassword = async (req, res) => {
   const { username, email, password} = req.body;
-  
+  //console.log('Solicitud de inicio de sesión recibida:', req.body);
   try {
     const user = await usersLogin.getUserByUsernameAndPassword(username, email, password);
     if (user && user.length > 0) {

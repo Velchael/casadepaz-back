@@ -24,7 +24,7 @@ const createUsers = async (users) => {
       from: EMAIL_USER,
       to: email,
       subject: 'Confirmación de registro',
-      text: `Haz clic en este enlace para confirmar tu registro: http://127.0.0.1:5501/confirm-email.html?token=${confirmationToken}`
+      text: `Haz clic en este enlace para confirmar tu registro: http://127.0.0.1:5501/confirm-email.html?token=${confirmationToken}`                                                           
     };
 
     // Envía el correo electrónico

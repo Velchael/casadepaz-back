@@ -1,6 +1,12 @@
 const app = require('./app');
-require('dotenv').config();
+const result = require('dotenv').config();
+if (result.error) {
+    console.error('Error loading .env file:', result.error);
+  }
+const PORT = process.env.PORT;
 
-const PORT = process.env.PORT || 3307;
-//3307
-app.listen(PORT, () => console.log(`Server running or port... ${PORT}`));
+try {
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  } catch (error) {
+    console.error('Error starting the server:', error.message);
+  }
