@@ -7,7 +7,7 @@ const app = express();
 
 
 const corsOptions = {
- origin: 'http://127.0.0.1:5501',
+ origin: 'https://casadepaz.intelsiteweb.com',
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   credentials: true,
   optionsSuccessStatus: 204,
