@@ -10,6 +10,14 @@ MYSQL_USER=root
 MYSQL_PASSWORD=1234567
 MYSQL_DB=casadepaz
 
+////////configuracion hostinger
+
+MYSQL_PORTO=3306
+MYSQL_HOST=intelsiteweb.com
+MYSQL_USER=velchael
+MYSQL_PASSWORD=11082390St.
+MYSQL_DB=casadepaz
+
 //////ultimo da hostinger
 PORT=8080
 MYSQL_HOST=intelsiteweb.com
