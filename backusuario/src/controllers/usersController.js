@@ -1,22 +1,33 @@
 const usersLogin = require('../models/usersLogin');
-const createUsers = async (request, response) => {
-  const createUsers = await usersLogin.createUsers(request.body);
-  return response.status(201).json(createUsers);
+
+const createUsers = async (req, res) => {
+  try {
+    const result = await usersLogin.createUsers(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    if (error.message === 'El correo electrónico ya está registrado') {
+      res.status(409).json({ message: error.message });
+    } else if (error.message === 'Grupo familiar no encontrado') {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Error interno del servidor...' });
+    }
+  }
 };
+
 
 const getUserByUsernameAndPassword = async (req, res) => {
   const { username, email, password} = req.body;
-  //console.log('Solicitud de inicio de sesión recibida:', req.body);
+  console.log('Solicitud de inicio de sesión recibida:', req.body);
   try {
     const user = await usersLogin.getUserByUsernameAndPassword(username, email, password);
-    if (user && user.length > 0) {
+    if (user) {
       return res.status(200).json({ user });
     } else {
       return res.status(404).json({ message: 'Usuario não encontrado ou email não confirmado' });
     }
   } catch (error) {
-    console.error('não foi possível fazer login:', error);
-    return res.status(500).json({ message: 'Erro do Servidor Interno' });
+    return res.status(500).json({ message: 'Erro do Servidor Interno..' });
   }
 };
 

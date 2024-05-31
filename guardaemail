@@ -1,0 +1,50 @@
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+const connection = require('./connection');
+const { EMAIL_USER, KINGHOST_SMTP_HOST, KINGHOST_SMTP_PORT, KINGHOST_SMTP_USER, KINGHOST_SMTP_PASSWORD } = require('../config.js');
+
+const createUsers = async (req, res) => {
+  const { username, email, password } = req.body;
+  
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const confirmationToken = crypto.randomBytes(32).toString('hex');
+  const query = 'INSERT INTO users(username, email, password, confirmation_token) VALUES (?,?,?,?)';
+
+  try {
+    await connection.execute(query, [username, email, hashedPassword, confirmationToken]);
+
+    const transporter = nodemailer.createTransport({
+      host: KINGHOST_SMTP_HOST,
+      port: KINGHOST_SMTP_PORT,
+      secure: true,
+      auth: {
+        user: KINGHOST_SMTP_USER,
+        pass: KINGHOST_SMTP_PASSWORD,
+      }
+    });
+
+    const mailOptions = {
+      from: EMAIL_USER,
+      to: email,
+      subject: 'Confirmación de registro',
+      text: `Clique neste link para confirmar seu cadastro: http://127.0.0.1:3000/EmailConfirmation?token=${confirmationToken}`
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Correo enviado:', info.response);
+
+    return res.status(201).json({ message: 'Usuario registrado con éxito. Por favor, confirma tu correo electrónico' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      console.error('Error al registrar el usuario: correo electrónico duplicado');
+      return res.status(409).json({ message: 'El correo electrónico ya está registrado' });
+    }
+    console.error('Error al registrar el usuario:', error);
+    return res.status(500).json({ message: 'Error del Servidor Interno' });
+  }
+};
+
+module.exports = {
+  createUsers
+};

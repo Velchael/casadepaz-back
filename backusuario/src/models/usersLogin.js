@@ -1,33 +1,47 @@
-const connection = require('./connection');
-const nodemailer = require('nodemailer');
-const { EMAIL_USER, KINGHOST_SMTP_HOST, KINGHOST_SMTP_PORT, KINGHOST_SMTP_USER, KINGHOST_SMTP_PASSWORD } = require('../config.js');
+const bcrypt = require('bcrypt');
 const crypto = require('crypto'); // Para generar enlaces seguros
-const createUsers = async (users) => {
-  const { username, email, password } = users;
-  const query = 'INSERT INTO users(username, email, password, confirmation_token) VALUES (?,?,?,?)';
-  // Generar un token único y seguro para la confirmación
-  const confirmationToken = crypto.randomBytes(32).toString('hex');
+const nodemailer = require('nodemailer');
+const connection = require('./connection');
+//const { EMAIL_USER, KINGHOST_SMTP_HOST, KINGHOST_SMTP_PORT, KINGHOST_SMTP_USER, KINGHOST_SMTP_PASSWORD } = require('../config.js');
 
+// Función para hashear la contraseña
+const hashPassword = async (password) => {
+  const saltRounds = 10;
+  const hashedPassword = await bcrypt.hash(password, saltRounds);
+  return hashedPassword;
+};
+
+const createUsers = async (users) => {
+  const { username, apellido,  email, password, rol, fecha_nacimiento, telefono, direccion, nivel_liderazgo, grupo_familiar_id, estado, foto_perfil} = users;
+  const query = 'INSERT INTO users(username, apellido, email, password, rol, fecha_nacimiento, telefono, direccion, nivel_liderazgo, grupo_familiar_id, estado, foto_perfil, confirmation_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  const confirmationToken = crypto.randomBytes(32).toString('hex');
+ // Hashear la contraseña antes de almacenarla
+ const hashedPassword = await hashPassword(password);
   try {
-    const [createdUsers] = await connection.execute(query, [username, email, password, confirmationToken]);
+      // Verificar si grupo_familiar_id existe
+      const [grupo] = await connection.execute('SELECT id FROM grupos_familiares WHERE id = ?', [grupo_familiar_id]);
+      if (grupo.length === 0) {
+       throw new Error('Grupo familiar no encontrado');
+       }
+
+    const [createdUsers] = await connection.execute(query, [username, apellido, email, hashedPassword, rol, fecha_nacimiento, telefono, direccion, nivel_liderazgo, grupo_familiar_id, estado, foto_perfil, confirmationToken]);
     const transporter = nodemailer.createTransport({
-      host: KINGHOST_SMTP_HOST,
-      port: KINGHOST_SMTP_PORT,
+      host: 'smtp.hostinger.com',
+      port: '465',
       secure: true,
       auth: {
-        user: KINGHOST_SMTP_USER,
-        pass: KINGHOST_SMTP_PASSWORD,
+        user: 'info@intelsiteweb.com',
+        pass: '11082390St.',
       }
     });
 
     const mailOptions = {
-      from: EMAIL_USER,
+      from: 'info@intelsiteweb.com',
       to: email,
       subject: 'Confirmación de registro',
-      text: `Haz clic en este enlace para confirmar tu registro: http://127.0.0.1:5501/confirm-email.html?token=${confirmationToken}`                                                           
+      text: `Clique neste link para confirmar seu cadastro: 'https://casadepazdos.netlify.app/EmailConfirmation?token=${confirmationToken}`                                                 
     };
 
-    // Envía el correo electrónico
     const info = await transporter.sendMail(mailOptions);
     console.log('Correo enviado...: ' + info.response);
 
@@ -38,9 +52,36 @@ const createUsers = async (users) => {
   }
 };
 
+const comparePassword = async (inputPassword, storedPasswordHash) => {
+  try {
+    return await bcrypt.compare(inputPassword, storedPasswordHash);
+  } catch (error) {
+    console.error('Error al comparar la contraseña:', error);
+    throw error;
+  }
+};
+
 const getUserByUsernameAndPassword = async (username, email, password) => {
-  const [user] = await connection.execute('SELECT * FROM users WHERE username = ? AND email = ? AND password = ?', [username, email, password]);
-  return user;
+  try {
+    const [rows] = await connection.execute('SELECT * FROM users WHERE username = ? AND email = ? AND confirmed = 1', [username, email]);
+
+    if (rows.length === 0) {
+      return null; // Usuario no encontrado o no  confirmado
+    }
+    const user = rows[0];
+    const isPasswordValid = await comparePassword(password, user.password);
+    
+    if (isPasswordValid) {
+
+      return user; // Contraseña válida
+    } else {
+     // console.log('Contraseña no válida');
+      return null; // Contraseña no válida
+    }
+  } catch (error) {
+    console.error('Error al verificar el usuario:', error);
+    throw error;
+  }
 };
 
 const confirmUserEmail = async (confirmationToken) => {
@@ -50,7 +91,6 @@ const confirmUserEmail = async (confirmationToken) => {
     }
     const [user] = await connection.execute('SELECT * FROM users WHERE confirmation_token = ?', [confirmationToken]);
     
-    // Verifica si el usuario no existe o si ya ha confirmado su correo
     if (!user || user.length === 0 || user[0].confirmed) {
       throw new Error('Token de confirmación no válido o ya utilizado');
     }
@@ -62,17 +102,17 @@ const confirmUserEmail = async (confirmationToken) => {
   } catch (error) {
     console.error('Error al confirmar el correo electrónico:', error);
 
-  if (error.code) {
-    console.error('Código de error MySQL:', error.code);
-    console.error('Número de error MySQL:', error.errno);
-    console.error('Mensaje de error MySQL:', error.sqlMessage);
-  }
-   // Puedes personalizar el manejo de errores según el tipo de error
-   if (error.message === 'Token de confirmación no válido') {
-    error.code = 'INVALID_TOKEN';
-  } else if (error.message === 'Token de confirmación no válido o ya utilizado') {
-    error.code = 'USED_TOKEN';
-  }
+    if (error.code) {
+      console.error('Código de error MySQL:', error.code);
+      console.error('Número de error MySQL:', error.errno);
+      console.error('Mensaje de error MySQL:', error.sqlMessage);
+    }
+
+    if (error.message === 'Token de confirmación no válido') {
+      error.code = 'INVALID_TOKEN';
+    } else if (error.message === 'Token de confirmación no válido o ya utilizado') {
+      error.code = 'USED_TOKEN';
+    }
     throw error;
   }
 };

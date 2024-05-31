@@ -10,9 +10,7 @@ MYSQL_USER=root
 MYSQL_PASSWORD=1234567
 MYSQL_DB=casadepaz
 
-////////configuracion hostinger
-
-MYSQL_PORTO=3306
+////////configuracion hostin
 MYSQL_HOST=intelsiteweb.com
 MYSQL_USER=velchael
 MYSQL_PASSWORD=11082390St.
@@ -42,3 +40,64 @@ const KINGHOST_SMTP_HOST = process.env.KINGHOST_SMTP_HOST
 const KINGHOST_SMTP_PORT = process.env.KINGHOST_SMTP_PORT 
 const KINGHOST_SMTP_USER = process.env.KINGHOST_SMTP_USER 
 const KINGHOST_SMTP_PASSWORD= process.env.KINGHOST_SMTP_PASSWORD 
+
+
+
+/////////packjson con node 18
+{
+    "name": "backend",
+    "version": "1.0.0",
+    "description": "",
+    "main": "src/server.js",
+    "scripts": {
+      "dev": "nodemon src/server.js",
+      "start": "node src/server.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+      "axios": "^1.6.1",
+      "cors": "^2.8.5",
+      "dotenv": "^16.3.1",
+      "express": "^4.18.2",
+      "googleapis": "^128.0.0",
+      "jsonwebtoken": "^9.0.2",
+      "mysql2": "^3.6.0",
+      "nodemailer": "^6.9.6"
+    },
+    "devDependencies": {
+      "nodemon": "^3.0.1"
+    }
+  }
+///////KINGHOST
+/// porto do servidor
+PORT=21030
+
+//// configuaçao da base de dato
+MYSQL_HOST=mysql.casadepazbak.kinghost.net
+MYSQL_USER=casadepazbak
+MYSQL_PASSWORD=Jesuscristo123
+MYSQL_DB=casadepazbak
+MYSQL_PORTO=3306
+
+///////////////////consulta a la base de datos 15/01/24
+const getUserByUsernameAndPassword = async (username, email, password) => {
+  console.log('username1:', username);
+  console.log('email1:', email);
+  console.log('password1:', password);
+
+  try {
+    console.log('Conexión a la base de datos establecida con éxito.  Siiiiiiiiiiiiiii');
+    const [userRows] = await connection.execute('SELECT * FROM users WHERE username = ? AND email = ? AND password = ?', [username, email, password]); 
+    if (!userRows || userRows.length === 0) {
+      // Lanza un error en lugar de enviar una respuesta HTTP
+      throw new Error('Usuario não encontrado ou email não confirmado');
+    }
+    const user = userRows[0];
+    return user;
+  } catch (error) {
+       // Lanza el error para que sea manejado en el controlador
+    throw error;
+  }
+};

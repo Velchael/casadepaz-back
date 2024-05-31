@@ -1,0 +1,435 @@
+const connection = require('./connection');
+const nodemailer = require('nodemailer');
+const { EMAIL_USER, KINGHOST_SMTP_HOST, KINGHOST_SMTP_PORT, KINGHOST_SMTP_USER, KINGHOST_SMTP_PASSWORD } = require('../config.js');
+const crypto = require('crypto'); // Para generar enlaces seguros
+
+const createUsers = async (users) => {
+  const { username, email, password } = users;
+  const query = 'INSERT INTO users(username, email, password, confirmation_token) VALUES (?,?,?,?)';
+  // Generar un token único y seguro para la confirmación
+  const confirmationToken = crypto.randomBytes(32).toString('hex');
+
+  try {
+    const [createdUsers] = await connection.execute(query, [username, email, password, confirmationToken]);
+    const transporter = nodemailer.createTransport({
+      host: KINGHOST_SMTP_HOST,
+      port: KINGHOST_SMTP_PORT,
+      secure: true,
+      auth: {
+        user: KINGHOST_SMTP_USER,
+        pass: KINGHOST_SMTP_PASSWORD,
+      }
+    });
+
+    const mailOptions = {
+      from: EMAIL_USER,
+      to: email,
+      subject: 'Confirmación de registro',
+      //text: `Haz clic en este enlace para confirmar tu registro: 'https://casadepaz.intelsiteweb.com/confirm-email.html?token=${confirmationToken}`   
+      //text: `Haz clic en este enlace para confirmar tu registro: 'http://127.0.0.1:3307/confirm-email.html?token=${confirmationToken}`  
+      text: `Clique neste link para confirmar seu cadastro: 'http://127.0.0.1:3000/EmailConfirmation?token=${confirmationToken}`                                                 
+    };
+
+    // Envía el correo electrónico
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Correo enviado...: ' + info.response);
+
+    return { message: 'Usuario registrado con éxito. Por favor, confirma tu correo electrónico' };
+  } catch (error) {
+    console.error('Error al registrar el usuario:', error);
+    throw error;
+  }
+};
+
+const getUserByUsernameAndPassword = async (username, email, password) => {
+  const [user] = await connection.execute('SELECT * FROM users WHERE username = ? AND email = ? AND password = ?', [username, email, password]);
+  return user;
+};
+
+const confirmUserEmail = async (confirmationToken) => {
+  try {
+    if (!confirmationToken) {
+      throw new Error('Token de confirmación no válido');
+    }
+    const [user] = await connection.execute('SELECT * FROM users WHERE confirmation_token = ?', [confirmationToken]);
+    
+    // Verifica si el usuario no existe o si ya ha confirmado su correo
+    if (!user || user.length === 0 || user[0].confirmed) {
+      throw new Error('Token de confirmación no válido o ya utilizado');
+    }
+    const email = user[0].email;
+
+    await connection.execute('UPDATE users SET confirmed = 1, confirmation_token = NULL WHERE email = ?', [email]);
+
+    return { message: 'Correo electrónico confirmado con éxito' };
+  } catch (error) {
+    console.error('Error al confirmar el correo electrónico:', error);
+
+  if (error.code) {
+    console.error('Código de error MySQL:', error.code);
+    console.error('Número de error MySQL:', error.errno);
+    console.error('Mensaje de error MySQL:', error.sqlMessage);
+  }
+   // Puedes personalizar el manejo de errores según el tipo de error
+   if (error.message === 'Token de confirmación no válido') {
+    error.code = 'INVALID_TOKEN';
+  } else if (error.message === 'Token de confirmación no válido o ya utilizado') {
+    error.code = 'USED_TOKEN';
+  }
+    throw error;
+  }
+};
+
+module.exports = {
+  createUsers,
+  getUserByUsernameAndPassword,
+  confirmUserEmail
+};
+
+//////////////////////// userscontroller edicion 2 clave encriptada , cors para servidor remoto http domingo 26/05/24
+
+const usersLogin = require('../models/usersLogin');
+
+const createUsers = async (request, response) => {
+  const createUsers = await usersLogin.createUsers(request.body);
+  return response.status(201).json(createUsers);
+};
+
+const getUserByUsernameAndPassword = async (req, res) => {
+  const { username, email, password} = req.body;
+
+  console.log('Solicitud de inicio de sesión recibida:', req.body);
+
+  try {
+    const user = await usersLogin.getUserByUsernameAndPassword(username, email, password);
+    
+    if (user) {
+      console.log('Usuario encontrado y contraseña válida:', user);
+      return res.status(200).json({ user });
+    } else {
+      console.log('Usuario no encontrado o email no confirmado');
+      return res.status(404).json({ message: 'Usuario não encontrado ou email não confirmado' });
+    }
+  } catch (error) {
+    console.error('não foi possível fazer login:', error);
+    return res.status(500).json({ message: 'Erro do Servidor Interno' });
+  }
+};
+
+const confirmUserEmail = async (req, res) => {
+  try {
+    const token = req.body.token;
+   if (!token) {
+     return res.status(400).json({ message: 'Token de confirmación no proporcionado' });
+   }
+    const result = await usersLogin.confirmUserEmail(token);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error al confirmar el correo electrónico:', error);
+
+    if (error.code === 'INVALID_TOKEN') {
+      return res.status(404).json({ message: 'El token de confirmación no es válido' });
+    } else if (error.code === 'USED_TOKEN') {
+      return res.status(404).json({ message: 'El token de confirmación ya ha sido utilizado' });
+    } else if (error.code === 'TOKEN_EXPIRED') {
+      return res.status(400).json({ message: 'El token de confirmación ha expirado' });
+    }
+    res.status(500).json({ message: 'Error al confirmar el correo electrónico.' });
+  }
+};
+
+module.exports = {
+  createUsers,
+  getUserByUsernameAndPassword,
+  confirmUserEmail
+};
+
+/////////////////////////////userLogin
+
+
+const bcrypt = require('bcrypt');
+const crypto = require('crypto'); // Para generar enlaces seguros
+const nodemailer = require('nodemailer');
+const connection = require('./connection');
+const { EMAIL_USER, KINGHOST_SMTP_HOST, KINGHOST_SMTP_PORT, KINGHOST_SMTP_USER, KINGHOST_SMTP_PASSWORD } = require('../config.js');
+
+// Función para hashear la contraseña
+const hashPassword = async (password) => {
+  const saltRounds = 10;
+  const hashedPassword = await bcrypt.hash(password, saltRounds);
+  return hashedPassword;
+};
+
+
+
+const createUsers = async (users) => {
+  const { username, email, password } = users;
+  const query = 'INSERT INTO users(username, email, password, confirmation_token) VALUES (?,?,?,?)';
+  const confirmationToken = crypto.randomBytes(32).toString('hex');
+ // Hashear la contraseña antes de almacenarla
+ const hashedPassword = await hashPassword(password);
+  try {
+
+    const [createdUsers] = await connection.execute(query, [username, email, hashedPassword, confirmationToken]);
+    const transporter = nodemailer.createTransport({
+      host: KINGHOST_SMTP_HOST,
+      port: KINGHOST_SMTP_PORT,
+      secure: true,
+      auth: {
+        user: KINGHOST_SMTP_USER,
+        pass: KINGHOST_SMTP_PASSWORD,
+      }
+    });
+
+    const mailOptions = {
+      from: EMAIL_USER,
+      to: email,
+      subject: 'Confirmación de registro',
+      text: `Clique neste link para confirmar seu cadastro: 'http://127.0.0.1:3000/EmailConfirmation?token=${confirmationToken}`                                                 
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Correo enviado...: ' + info.response);
+
+    return { message: 'Usuario registrado con éxito. Por favor, confirma tu correo electrónico' };
+  } catch (error) {
+    console.error('Error al registrar el usuario:', error);
+    throw error;
+  }
+};
+
+// Función para comparar contraseñas
+//const comparePassword = async (password, hashedPassword) => {
+ // return await bcrypt.compare(password, hashedPassword);
+//};
+
+const comparePassword = async (inputPassword, storedPasswordHash) => {
+  try {
+    return await bcrypt.compare(inputPassword, storedPasswordHash);
+  } catch (error) {
+    console.error('Error al comparar la contraseña:', error);
+    throw error;
+  }
+};
+
+const getUserByUsernameAndPassword = async (username, email, password) => {
+  try {
+    const [rows] = await connection.execute('SELECT * FROM users WHERE username = ? AND email = ? AND confirmed = 1', [username, email]);
+
+    if (rows.length === 0) {
+      console.log('Usuario no encontrado en la base de datos');
+      return null; // Usuario no encontrado o no  confirmado
+    }
+    
+    const user = rows[0];
+    console.log('Usuario encontrado, verificando contraseña...');
+    const isPasswordValid = await comparePassword(password, user.password);
+    
+    if (isPasswordValid) {
+      console.log('Contraseña válida');
+      return user; // Contraseña válida
+    } else {
+      console.log('Contraseña no válida');
+      return null; // Contraseña no válida
+    }
+  } catch (error) {
+    console.error('Error al verificar el usuario:', error);
+    throw error;
+  }
+};
+
+const confirmUserEmail = async (confirmationToken) => {
+  try {
+    if (!confirmationToken) {
+      throw new Error('Token de confirmación no válido');
+    }
+    const [user] = await connection.execute('SELECT * FROM users WHERE confirmation_token = ?', [confirmationToken]);
+    
+    if (!user || user.length === 0 || user[0].confirmed) {
+      throw new Error('Token de confirmación no válido o ya utilizado');
+    }
+    const email = user[0].email;
+
+    await connection.execute('UPDATE users SET confirmed = 1, confirmation_token = NULL WHERE email = ?', [email]);
+
+    return { message: 'Correo electrónico confirmado con éxito' };
+  } catch (error) {
+    console.error('Error al confirmar el correo electrónico:', error);
+
+    if (error.code) {
+      console.error('Código de error MySQL:', error.code);
+      console.error('Número de error MySQL:', error.errno);
+      console.error('Mensaje de error MySQL:', error.sqlMessage);
+    }
+
+    if (error.message === 'Token de confirmación no válido') {
+      error.code = 'INVALID_TOKEN';
+    } else if (error.message === 'Token de confirmación no válido o ya utilizado') {
+      error.code = 'USED_TOKEN';
+    }
+    throw error;
+  }
+};
+
+module.exports = {
+  createUsers,
+  getUserByUsernameAndPassword,
+  confirmUserEmail
+};
+
+
+////////////////////////////// usercontroller  ---  funcioin createUsers
+const createUsers = async (req, res) => {
+  try {
+    const result = await usersLogin.createUsers(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    if (error.message === 'El correo electrónico ya está registrado') {
+      res.status(409).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Error interno del servidor' });
+    }
+  }
+};
+
+////////////////cors antiguo
+//const corsOptions = {
+//origin: 'https://casadepaz.intelsiteweb.com',
+ // origin: 'https://velchael.github.io/Paz/',
+ // origin: 'https://velchael.github.io',
+ // origin: 'http://127.0.0.1:5501',
+//  origin: 'http://127.0.0.1:3000',
+ // methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+ // credentials: true,
+  //optionsSuccessStatus: 204,
+//};
+
+/////////////////////////////// importante este es el ultimo usersLogin que sirve como servidor local
+
+const bcrypt = require('bcrypt');
+const crypto = require('crypto'); // Para generar enlaces seguros
+const nodemailer = require('nodemailer');
+const connection = require('./connection');
+const { EMAIL_USER, KINGHOST_SMTP_HOST, KINGHOST_SMTP_PORT, KINGHOST_SMTP_USER, KINGHOST_SMTP_PASSWORD } = require('../config.js');
+
+// Función para hashear la contraseña
+const hashPassword = async (password) => {
+  const saltRounds = 10;
+  const hashedPassword = await bcrypt.hash(password, saltRounds);
+  return hashedPassword;
+};
+
+const createUsers = async (users) => {
+  const { username, apellido,  email, password, rol, fecha_nacimiento, telefono, direccion, nivel_liderazgo, grupo_familiar_id, estado, foto_perfil} = users;
+  const query = 'INSERT INTO users(username, apellido, email, password, rol, fecha_nacimiento, telefono, direccion, nivel_liderazgo, grupo_familiar_id, estado, foto_perfil, confirmation_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  const confirmationToken = crypto.randomBytes(32).toString('hex');
+ // Hashear la contraseña antes de almacenarla
+ const hashedPassword = await hashPassword(password);
+  try {
+      // Verificar si grupo_familiar_id existe
+      const [grupo] = await connection.execute('SELECT id FROM grupos_familiares WHERE id = ?', [grupo_familiar_id]);
+      if (grupo.length === 0) {
+       throw new Error('Grupo familiar no encontrado');
+       }
+
+    const [createdUsers] = await connection.execute(query, [username, apellido, email, hashedPassword, rol, fecha_nacimiento, telefono, direccion, nivel_liderazgo, grupo_familiar_id, estado, foto_perfil, confirmationToken]);
+    const transporter = nodemailer.createTransport({
+      host: KINGHOST_SMTP_HOST,
+      port: KINGHOST_SMTP_PORT,
+      secure: true,
+      auth: {
+        user: KINGHOST_SMTP_USER,
+        pass: KINGHOST_SMTP_PASSWORD,
+      }
+    });
+
+    const mailOptions = {
+      from: EMAIL_USER,
+      to: email,
+      subject: 'Confirmación de registro',
+      text: `Clique neste link para confirmar seu cadastro: 'https://casadepazdos.netlify.app/EmailConfirmation?token=${confirmationToken}`                                                 
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Correo enviado...: ' + info.response);
+
+    return { message: 'Usuario registrado con éxito. Por favor, confirma tu correo electrónico' };
+  } catch (error) {
+    console.error('Error al registrar el usuario:', error);
+    throw error;
+  }
+};
+
+const comparePassword = async (inputPassword, storedPasswordHash) => {
+  try {
+    return await bcrypt.compare(inputPassword, storedPasswordHash);
+  } catch (error) {
+    console.error('Error al comparar la contraseña:', error);
+    throw error;
+  }
+};
+
+const getUserByUsernameAndPassword = async (username, email, password) => {
+  try {
+    const [rows] = await connection.execute('SELECT * FROM users WHERE username = ? AND email = ? AND confirmed = 1', [username, email]);
+
+    if (rows.length === 0) {
+      //console.log('Usuario no encontrado en la base de datos');
+      return null; // Usuario no encontrado o no  confirmado
+    }
+    
+    const user = rows[0];
+    //console.log('Usuario encontrado, verificando contraseña...');
+    const isPasswordValid = await comparePassword(password, user.password);
+    
+    if (isPasswordValid) {
+     // console.log('Contraseña válida');
+      return user; // Contraseña válida
+    } else {
+     // console.log('Contraseña no válida');
+      return null; // Contraseña no válida
+    }
+  } catch (error) {
+    console.error('Error al verificar el usuario:', error);
+    throw error;
+  }
+};
+
+const confirmUserEmail = async (confirmationToken) => {
+  try {
+    if (!confirmationToken) {
+      throw new Error('Token de confirmación no válido');
+    }
+    const [user] = await connection.execute('SELECT * FROM users WHERE confirmation_token = ?', [confirmationToken]);
+    
+    if (!user || user.length === 0 || user[0].confirmed) {
+      throw new Error('Token de confirmación no válido o ya utilizado');
+    }
+    const email = user[0].email;
+
+    await connection.execute('UPDATE users SET confirmed = 1, confirmation_token = NULL WHERE email = ?', [email]);
+
+    return { message: 'Correo electrónico confirmado con éxito' };
+  } catch (error) {
+    console.error('Error al confirmar el correo electrónico:', error);
+
+    if (error.code) {
+      console.error('Código de error MySQL:', error.code);
+      console.error('Número de error MySQL:', error.errno);
+      console.error('Mensaje de error MySQL:', error.sqlMessage);
+    }
+
+    if (error.message === 'Token de confirmación no válido') {
+      error.code = 'INVALID_TOKEN';
+    } else if (error.message === 'Token de confirmación no válido o ya utilizado') {
+      error.code = 'USED_TOKEN';
+    }
+    throw error;
+  }
+};
+
+module.exports = {
+  createUsers,
+  getUserByUsernameAndPassword,
+  confirmUserEmail
+};
